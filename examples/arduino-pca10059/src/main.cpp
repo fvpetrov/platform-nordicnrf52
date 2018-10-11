@@ -3,8 +3,11 @@
 // This work file is based on the arduino-ble-led example, adapted for PCA10059 with external BME680.
 
 #include <Arduino.h>
-#include "Zanshin_BME680.h"
 
+// Uncomment if you have a BME680 connected on I2C or SPI.
+//define ENABLE_BME
+
+// Uncomment for selecting BME mode
 //#define BME_MODE I2C_STANDARD_MODE  // For I2C MODE
 #define BME_MODE SS  // SPI MODE, standard Variant Chip Select pin
 
@@ -15,6 +18,15 @@
 #define G_LED_PIN   PIN_LED2_G
 #define B_LED_PIN   PIN_LED2_B
 
+#if defined(ENABLE_BME)
+#include "Zanshin_BME680.h"
+BME680_Class BME680;
+int32_t o_temp, temp;
+int32_t o_hum, hum;
+int32_t o_pres, pres;
+int32_t o_gas, gas;
+#endif
+
 #if defined(ENABLE_BLE)
 #include <BLEPeripheral.h>
 #include <SPI.h>
@@ -22,12 +34,6 @@ BLEPeripheral blePeripheral = BLEPeripheral();
 BLEService ledService = BLEService("19b10000e8f2537e4f6cd104768a1214");
 BLECharCharacteristic switchCharacteristic = BLECharCharacteristic("19b10001e8f2537e4f6cd104768a1214", BLERead | BLEWrite);
 #endif
-
-BME680_Class BME680;
-int32_t o_temp, temp;
-int32_t o_hum, hum;
-int32_t o_pres, pres;
-int32_t o_gas, gas;
 
 void setup() {
   Serial.begin(115200);
@@ -42,6 +48,7 @@ void setup() {
   digitalWrite(G_LED_PIN, LOW);
   digitalWrite(B_LED_PIN, LOW);
 
+  #if defined(ENABLE_BME)
   Serial.print(F("BME680... "));
   if (BME680.begin(BME_MODE)) {
     Serial.println(F("OK"));
@@ -55,6 +62,7 @@ void setup() {
   } else {
     Serial.println(F("FAIL"));
   }
+  #endif
 
   #if defined(ENABLE_BLE)
   // set advertised local name and service UUID
@@ -111,6 +119,7 @@ void loop() {
   digitalWrite(R_LED_PIN, toggle % 3);
   digitalWrite(G_LED_PIN, toggle % 4);
   digitalWrite(B_LED_PIN, toggle % 5);
+  #if defined(ENABLE_BME)
   if(!(toggle % 4)) {
     BME680.getSensorData(temp, hum, pres, gas);
     if (o_temp != temp) {
@@ -125,4 +134,5 @@ void loop() {
       Serial.println(F("mOhm"));
     }
   }
+  #endif
 }
