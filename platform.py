@@ -15,6 +15,7 @@
 from platform import system
 
 from platformio.managers.platform import PlatformBase
+from platformio.util import get_systype
 
 
 class Nordicnrf52Platform(PlatformBase):
@@ -23,22 +24,45 @@ class Nordicnrf52Platform(PlatformBase):
         return True
 
     def configure_default_packages(self, variables, targets):
-        if variables.get("board"):
-            upload_protocol = variables.get("upload_protocol",
-                                            self.board_config(
-                                                variables.get("board")).get(
-                                                    "upload.protocol", ""))
-            if "tool-nrfjprog" in self.packages and \
-                    upload_protocol != "nrfjprog":
-                del self.packages["tool-nrfjprog"]
+        upload_protocol = ""
+        board = variables.get("board")
+        if board:
+            upload_protocol = variables.get(
+                "upload_protocol",
+                self.board_config(board).get("upload.protocol", ""))
+
+            if self.board_config(board).get("build.bsp.name",
+                                            "nrf5") == "adafruit":
+                self.frameworks['arduino'][
+                    'package'] = "framework-arduinoadafruitnrf52"
+                    
+            if "zephyr" in variables.get("pioframework", []):
+                for p in self.packages:
+                    if p.startswith("framework-zephyr-") or p in (
+                        "tool-cmake", "tool-dtc", "tool-ninja"):
+                        self.packages[p]["optional"] = False
+                self.packages['toolchain-gccarmnoneeabi']['version'] = "~1.80201.0"
+                if "windows" not in get_systype():
+                    self.packages['tool-gperf']['optional'] = False
+
+            if board == "nano33ble":
+                self.packages['toolchain-gccarmnoneeabi']['version'] = "~1.80201.0"
+                self.frameworks['arduino']['package'] = "framework-arduino-nrf52-mbedos"
+                self.frameworks['arduino']['script'] = "builder/frameworks/arduino/nrf52-mbedos.py"
+
+        if set(["bootloader", "erase"]) & set(targets):
+            self.packages["tool-nrfjprog"]["optional"] = False
+        elif (upload_protocol and upload_protocol != "nrfjprog"
+              and "tool-nrfjprog" in self.packages):
+            del self.packages["tool-nrfjprog"]
 
         # configure J-LINK tool
         jlink_conds = [
             "jlink" in variables.get(option, "")
             for option in ("upload_protocol", "debug_tool")
         ]
-        if variables.get("board"):
-            board_config = self.board_config(variables.get("board"))
+        if board:
+            board_config = self.board_config(board)
             jlink_conds.extend([
                 "jlink" in board_config.get(key, "")
                 for key in ("debug.default_tools", "upload.protocol")
@@ -95,27 +119,30 @@ class Nordicnrf52Platform(PlatformBase):
                         "executable": ("JLinkGDBServerCL.exe"
                                        if system() == "Windows" else
                                        "JLinkGDBServer")
-                    },
-                    "onboard": link in debug.get("onboard_tools", [])
+                    }
                 }
 
             else:
-                server_args = ["-f", "scripts/interface/%s.cfg" % link]
+                server_args = [
+                    "-s", "$PACKAGE_DIR/scripts",
+                    "-f", "interface/%s.cfg" % link
+                ]
                 if link == "stlink":
                     server_args.extend([
                         "-c",
                         "transport select hla_swd; set WORKAREASIZE 0x4000"
                     ])
-                server_args.extend(["-f", "scripts/target/nrf52.cfg"])
+                server_args.extend(["-f", "target/nrf52.cfg"])
                 debug['tools'][link] = {
                     "server": {
                         "package": "tool-openocd",
                         "executable": "bin/openocd",
                         "arguments": server_args
-                    },
-                    "onboard": link in debug.get("onboard_tools", []),
-                    "default": link in debug.get("default_tools", [])
+                    }
                 }
+
+            debug['tools'][link]['onboard'] = link in debug.get("onboard_tools", [])
+            debug['tools'][link]['default'] = link in debug.get("default_tools", [])
 
         board.manifest['debug'] = debug
         return board
